@@ -5,5 +5,7 @@ authors = ["Toshiya Nakakura <nakakura@me.com>"]
 
 [dependencies]
 futures = "0.1.17"
-tokio-core = "0.1.10"
+tokio = "*"
+tokio-io = "*"
+bytes = "*"
 
