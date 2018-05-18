@@ -8,49 +8,42 @@ use futures::*;
 use futures::sync::mpsc;
 use tokio::net::{UdpSocket, UdpFramed};
 use tokio_io::codec::BytesCodec;
-use tokio::executor::current_thread::{ CurrentThread, RunError };
+use tokio::executor::current_thread::CurrentThread;
 use bytes::Bytes;
 
 use std::net::SocketAddr;
 
 fn main() {
     let target_addr_str = "127.0.0.1";
-    let addr_vec: Vec<SocketAddr> = vec!(
-        format!("{}:{}", &target_addr_str, 10000).parse().unwrap(),
-        format!("{}:{}", &target_addr_str, 10001).parse().unwrap()
-    );
+    let addr1: SocketAddr = format!("{}:{}", &target_addr_str, 10000).parse().unwrap();
+    let addr2: SocketAddr = format!("{}:{}", &target_addr_str, 10001).parse().unwrap();
 
-    let (_tx_array, rx_array) = (0..2).fold((vec!(), vec!()), |mut sum, _| {
-        let x = mpsc::channel::<(Bytes, SocketAddr)>(5000);
-        sum.0.push(x.0);
-        sum.1.push(x.1);
-        sum
-    });
+    let x1 = mpsc::channel::<(Bytes, SocketAddr)>(5000);
+    let x2 = mpsc::channel::<(Bytes, SocketAddr)>(5000);
 
-    let _x = sendrecv(addr_vec, rx_array);
-}
-
-fn sendrecv(addrs: Vec<SocketAddr>, mut streams: Vec<mpsc::Receiver<(Bytes, SocketAddr)>>) -> Result<(), RunError> {
     let mut current_thread = CurrentThread::new();
 
-    for addr in addrs.iter() {
-        let sock = UdpSocket::bind(&addr).unwrap();
-        let (a_sink, a_stream) = UdpFramed::new(sock, BytesCodec::new()).split();
-        let task = a_stream.map_err(|_| ()).for_each(|x| {
-            println!("recv {:?}", x);
-            Ok(())
-        });
+    socket(&addr1, x1.1, &mut current_thread);
+    socket(&addr2, x2.1, &mut current_thread);
 
-        let sender = a_sink.sink_map_err(|e| {
-            eprintln!("err {:?}", e);
-        }).send_all(streams.remove(0)).then(|_| Ok(()));
+    let _x = current_thread.run();
+}
 
-        current_thread.spawn({
-            sender.join(task)
-                .map(|_| ())
-                .map_err(|e| println!("error = {:?}", e))
-        });
-    }
+fn socket(addr: &SocketAddr, stream: mpsc::Receiver<(Bytes, SocketAddr)>, current_thread: &mut CurrentThread) {
+    let sock = UdpSocket::bind(&addr).unwrap();
+    let (a_sink, a_stream) = UdpFramed::new(sock, BytesCodec::new()).split();
+    let task = a_stream.map_err(|_| ()).for_each(|x| {
+        println!("recv {:?}", x);
+        Ok(())
+    });
 
-    current_thread.run()
+    let sender = a_sink.sink_map_err(|e| {
+        eprintln!("err {:?}", e);
+    }).send_all(stream).then(|_| Ok(()));
+
+    current_thread.spawn({
+        sender.join(task)
+            .map(|_| ())
+            .map_err(|e| println!("error = {:?}", e))
+    });
 }
